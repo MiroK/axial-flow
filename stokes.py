@@ -85,7 +85,7 @@ def stokes_iter(mesh, bcs, mu):
 
     ds = Measure('ds', domain=mesh, subdomain_data=bdries)
 
-    a00 = mu*inner(grad(u), grad(v))*r*dx + mu*(inner(u[0], v[0])/r)*dx(degree=5)
+    a00 = mu*inner(grad(u), grad(v))*r*dx + mu*(inner(u[0], v[0])/r)*dx
     a01 = -inner(p, div(v))*r*dx - inner(p, v[0])*dx
     a10 = -inner(q, div(u))*r*dx - inner(q, u[0])*dx
 
@@ -124,11 +124,13 @@ def stokes_iter(mesh, bcs, mu):
 # ----------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
+    import numpy as np
     R0 = 0.2
     R1 = 0.5
     H = 1   # Hardcoded
     mu = Constant(2)
 
+    uh0, ph0 = None, None
     for n in (2, 4, 8, 16, 32, 64):
         mesh = RectangleMesh(Point(R0, 0), Point(R1, H), n, 2*n)
         boundaries = FacetFunction('size_t', mesh)
@@ -138,17 +140,50 @@ if __name__ == '__main__':
         CompiledSubDomain('near(x[1], H)', H=0).mark(boundaries, 3)
         CompiledSubDomain('near(x[1], H)', H=H).mark(boundaries, 4)
 
+        A_ = 10/4/mu(0)
+        B_ = -A_*(R1**2-R0**2)/np.log(R1/R0)
+
         bcs = {'domains': boundaries,                                       # v hardcoded
-               'values':  (Constant((0, 0)), Constant((0, 0)), Constant(0), Constant(-10))}
+               'values':  (Constant((0, 0)),
+                           Constant((0, 0)),
+                           Constant(0),
+                           Constant(-10))
+               }
         
         uh, ph = stokes_iter(mesh, bcs, mu)
 
-        r = SpatialCoordinate(mesh)[0]
-        print map(sqrt, map(assemble, (inner(uh[0], uh[0])*r*dx, inner(uh[1], uh[1])*r*dx)))
+        if uh0 is not None:
+            V, Q = uh.function_space(), ph.function_space()
+
+            mesh = V.mesh()
+            r = SpatialCoordinate(mesh)[0]
+
+            e = uh - interpolate(uh0, V)
+            eu = sqrt(assemble(inner(grad(e), grad(e))*r*dx))
+            eu /= sqrt(assemble(inner(grad(uh), grad(uh))*r*dx))
+
+            e = ph - interpolate(ph0, Q)
+            ep = sqrt(assemble(inner(e, e)*r*dx))
+            ep /= sqrt(assemble(inner(ph, ph)*r*dx))
+
+            print 'Difference', eu, ep
+            print 'L2 pressure', errornorm(Expression('10*x[1]', degree=5), ph, 'L2')
+            print 'L2 ur', sqrt(assemble(inner(uh[0], uh[0])*dx))   # 0
+            # NOTE: So now the question is what is uz converging to, ignore temporarily
+        uh0, ph0 = uh, ph
 
     # plot(uh, title='uh')
-    # FIXME: MMS test
+    # interactive()
+
+    # OKAY - independence on z
+    # import matplotlib.pyplot as plt
+    # r = np.linspace(R0, R1, 100)
+    # plt.figure()
+    # for z in (0., 0.2, 0.4, 0.6, 0.8, 1.0):
+    #     plt.plot(r, [uh(ri, z)[1] for ri in r])
+    # plt.show()
+
     # FIXME: NAVIER-STOKES
     # FIXME: NAVIER-STOKES with ALE
-    # FIXEM: combine with surface trackit
-    n
+    # FIXME: combine with surface trackit
+
